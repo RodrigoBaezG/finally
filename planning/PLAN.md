@@ -34,7 +34,7 @@ The user runs a single Docker command (or a provided start script). A browser op
 
 - **Dark theme**: backgrounds around `#0d1117` or `#1a1a2e`, muted gray borders, no pure black
 - **Price flash animations**: brief green/red background highlight on price change, fading over ~500ms via CSS transitions
-- **Connection status indicator**: a small colored dot (green = connected, yellow = reconnecting, red = disconnected) visible in the header
+- **Connection status indicator**: a small colored dot (green = connected, red = disconnected) visible in the header — two states only, using native `EventSource` `open`/`error` events
 - **Professional, data-dense layout**: inspired by Bloomberg/trading terminals — every pixel earns its place
 - **Responsive but desktop-first**: optimized for wide screens, functional on tablet
 
@@ -154,6 +154,7 @@ Both the simulator and the Massive client implement the same abstract interface.
 - Correlated moves across tickers (e.g., tech stocks move together)
 - Occasional random "events" — sudden 2-5% moves on a ticker for drama
 - Starts from realistic seed prices (e.g., AAPL ~$190, GOOGL ~$175, etc.)
+- Records each ticker's seed price as its session-start price; all "change since session start %" calculations use this baseline
 - Runs as an in-process background task — no external dependencies
 
 ### Massive API (Optional)
@@ -167,7 +168,8 @@ Both the simulator and the Massive client implement the same abstract interface.
 ### Shared Price Cache
 
 - A single background task (simulator or Massive poller) writes to an in-memory price cache
-- The cache holds the latest price, previous price, and timestamp for each ticker
+- The cache holds the latest price, previous price, timestamp, and session-start price for each ticker
+- At backend startup, the cache is pre-seeded with each ticker's seed/baseline price so that `GET /api/watchlist` always returns a valid price — even before the first simulation tick
 - SSE streams read from this cache and push updates to connected clients
 - This architecture supports future multi-user scenarios without changes to the data layer
 
@@ -175,8 +177,8 @@ Both the simulator and the Massive client implement the same abstract interface.
 
 - Endpoint: `GET /api/stream/prices`
 - Long-lived SSE connection; client uses native `EventSource` API
-- Server pushes price updates for all tickers known to the system at a regular cadence (~500ms) — in the single-user model this is equivalent to the user's watchlist
-- Each SSE event contains ticker, price, previous price, timestamp, and change direction
+- On each tick (~500ms), the backend re-reads the current watchlist and streams prices for all tickers currently in it — newly added tickers appear in the next tick automatically, no client reconnect required
+- Each SSE event contains ticker, price, previous price, session-start price, timestamp, and change direction
 - Client handles reconnection automatically (EventSource has built-in retry)
 
 ---
@@ -207,7 +209,7 @@ All tables include a `user_id` column defaulting to `"default"`. This is hardcod
 - `added_at` TEXT (ISO timestamp)
 - UNIQUE constraint on `(user_id, ticker)`
 
-**positions** — Current holdings (one row per ticker per user)
+**positions** — Current holdings (one row per ticker per user; row is deleted when quantity reaches zero)
 - `id` TEXT PRIMARY KEY (UUID)
 - `user_id` TEXT (default: `"default"`)
 - `ticker` TEXT
@@ -236,7 +238,7 @@ All tables include a `user_id` column defaulting to `"default"`. This is hardcod
 - `user_id` TEXT (default: `"default"`)
 - `role` TEXT (`"user"` or `"assistant"`)
 - `content` TEXT
-- `actions` TEXT (JSON — trades executed, watchlist changes made; null for user messages)
+- `actions` TEXT (JSON — only successfully executed trades and watchlist changes; null for user messages; failed trade attempts are not persisted here but are described in the assistant's `content`)
 - `created_at` TEXT (ISO timestamp)
 
 ### Default Seed Data
@@ -264,7 +266,7 @@ All tables include a `user_id` column defaulting to `"default"`. This is hardcod
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/api/watchlist` | Current watchlist tickers with latest prices |
-| POST | `/api/watchlist` | Add a ticker: `{ticker}` |
+| POST | `/api/watchlist` | Add a ticker: `{ticker}` — validates ticker is known to the price source; returns 400 if not found |
 | DELETE | `/api/watchlist/{ticker}` | Remove a ticker |
 
 ### Chat
@@ -290,13 +292,13 @@ There is an OPENROUTER_API_KEY in the .env file in the project root.
 When the user sends a chat message, the backend:
 
 1. Loads the user's current portfolio context (cash, positions with P&L, watchlist with live prices, total portfolio value)
-2. Loads recent conversation history from the `chat_messages` table
+2. Loads the last 20 messages of conversation history from the `chat_messages` table
 3. Constructs a prompt with a system message, portfolio context, conversation history, and the user's new message
 4. Calls the LLM via LiteLLM → OpenRouter, requesting structured output
 5. Parses the complete structured JSON response
 6. Auto-executes any trades or watchlist changes specified in the response
 7. Stores the message and executed actions in `chat_messages`
-8. Returns the complete JSON response to the frontend (no token-by-token streaming — Cerebras inference is fast enough that a loading indicator is sufficient)
+8. Returns the complete JSON response to the frontend (no token-by-token streaming — inference is fast enough that a loading indicator is sufficient)
 
 ### Structured Output Schema
 
@@ -352,7 +354,7 @@ When `LLM_MOCK=true`, the backend returns deterministic mock responses instead o
 
 The frontend is a single-page application with a dense, terminal-inspired layout. The specific component architecture and layout system is up to the Frontend Engineer, but the UI should include these elements:
 
-- **Watchlist panel** — grid/table of watched tickers with: ticker symbol, current price (flashing green/red on change), daily change %, and a sparkline mini-chart (accumulated from SSE since page load)
+- **Watchlist panel** — grid/table of watched tickers with: ticker symbol, current price (flashing green/red on change), session change % (change from the session-start seed price), and a sparkline mini-chart (accumulated from SSE since page load)
 - **Main chart area** — larger chart for the currently selected ticker, with at minimum price over time. Clicking a ticker in the watchlist selects it here.
 - **Portfolio heatmap** — treemap visualization where each rectangle is a position, sized by portfolio weight, colored by P&L (green = profit, red = loss)
 - **P&L chart** — line chart showing total portfolio value over time, using data from `portfolio_snapshots`
@@ -366,6 +368,7 @@ The frontend is a single-page application with a dense, terminal-inspired layout
 - Use `EventSource` for SSE connection to `/api/stream/prices`
 - Canvas-based charting library preferred (Lightweight Charts or Recharts) for performance
 - Price flash effect: on receiving a new price, briefly apply a CSS class with background color transition, then remove it
+- **Live portfolio value in the header**: computed client-side from live SSE prices × known position quantities + cash balance — do not poll `/api/portfolio` for live updates; only call it on initial load and after trades
 - All API calls go to the same origin (`/api/*`) — no CORS configuration needed
 - Tailwind CSS for styling with a custom dark theme
 
@@ -456,51 +459,4 @@ The container is designed to deploy to AWS App Runner, Render, or any container 
 - SSE resilience: disconnect and verify reconnection
 
 ---
-
-## 13. Review Notes
-
-*Added 2026-04-13 — questions, clarifications, and simplification opportunities for discussion before implementation.*
-
-### Questions & Clarifications
-
-
-**"Daily change %" in a simulated environment**
-The watchlist panel shows "daily change %" but the simulator has no concept of a daily open price. How is this computed? (a) change since simulator start
-
-**SSE stream and dynamic watchlist**
-The SSE endpoint pushes updates for "all tickers known to the system." When a user adds a new ticker, does the open SSE connection automatically begin streaming it, or does the client need to reconnect? The backend's internal price-cache update loop needs to handle this correctly. If reconnection is required, the frontend should trigger it on watchlist mutations.
-
-**Position row lifecycle**
-When a user sells their entire position in a ticker, should the row in `positions` be deleted or updated to `quantity=0`? Leaving zero-quantity rows affects `GET /api/portfolio` response shape and the heatmap (does a zero-quantity position appear?). The plan doesn't specify.
-
-**Chat history depth**
-"Loads recent conversation history" — how many messages? No limit is defined. Long sessions will eventually exceed the LLM's context window and cause silent failures or truncation. A concrete limit (e.g., last 20 messages) should be specified.
-A:last 20 messages.
-
-
-**Ticker validation on add**
-When adding a ticker (manually or via AI chat), should the backend validate it exists? yes.
-
-**`actions` column and failed trades**
-The plan says trade errors are "included in the chat response" but doesn't say whether failed AI-initiated trades are also persisted in the `actions` JSON column of `chat_messages`. Clarify: does `actions` record attempted-but-failed trades, or only successfully executed ones?
-A: only successfully executed ones.
-
-**Portfolio value in the header vs. snapshots**
-The header shows "portfolio total value (updating live)" but `GET /api/portfolio` is a REST call, not SSE. To update live, the frontend must either poll `/api/portfolio` repeatedly or compute value client-side from live SSE prices + known positions. The plan is silent on which approach is intended. Client-side computation is simpler and more real-time; polling adds load.
-A: Client-side computation.
-
-**Connection status "yellow = reconnecting"**
-The native `EventSource` API only exposes `readyState`: `CONNECTING`, `OPEN`, or `CLOSED`. There's no explicit "reconnecting" event that maps cleanly to the yellow state. Implementing yellow requires wrapping `EventSource` with custom retry logic that detects `CLOSED` followed by a new `CONNECTING`. The frontend agent needs to know this isn't automatic.
-
-
-**`GET /api/watchlist` response during cold start**
-Before the market data background task has run its first tick, the price cache is empty. The watchlist endpoint says it returns "latest prices" — what does it return if no prices are cached yet? The seed prices from the simulator config
-
-
-
----
-
-### Simplification Opportunities
-
-
 
