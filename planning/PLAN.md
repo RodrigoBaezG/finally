@@ -281,7 +281,7 @@ All tables include a `user_id` column defaulting to `"default"`. This is hardcod
 
 ## 9. LLM Integration
 
-When writing code to make calls to LLMs, use cerebras-inference skill to use LiteLLM via OpenRouter to the `openrouter/openai/gpt-oss-120b` model with Cerebras as the inference provider. Structured Outputs should be used to interpret the results.
+When writing code to make calls to LLMs, use a free model via OpenRouter as the inference provider. Structured Outputs should be used to interpret the results.
 
 There is an OPENROUTER_API_KEY in the .env file in the project root.
 
@@ -292,7 +292,7 @@ When the user sends a chat message, the backend:
 1. Loads the user's current portfolio context (cash, positions with P&L, watchlist with live prices, total portfolio value)
 2. Loads recent conversation history from the `chat_messages` table
 3. Constructs a prompt with a system message, portfolio context, conversation history, and the user's new message
-4. Calls the LLM via LiteLLM → OpenRouter, requesting structured output, using the cerebras-inference skill
+4. Calls the LLM via LiteLLM → OpenRouter, requesting structured output
 5. Parses the complete structured JSON response
 6. Auto-executes any trades or watchlist changes specified in the response
 7. Stores the message and executed actions in `chat_messages`
@@ -454,3 +454,53 @@ The container is designed to deploy to AWS App Runner, Render, or any container 
 - Portfolio visualization: heatmap renders with correct colors, P&L chart has data points
 - AI chat (mocked): send a message, receive a response, trade execution appears inline
 - SSE resilience: disconnect and verify reconnection
+
+---
+
+## 13. Review Notes
+
+*Added 2026-04-13 — questions, clarifications, and simplification opportunities for discussion before implementation.*
+
+### Questions & Clarifications
+
+
+**"Daily change %" in a simulated environment**
+The watchlist panel shows "daily change %" but the simulator has no concept of a daily open price. How is this computed? (a) change since simulator start
+
+**SSE stream and dynamic watchlist**
+The SSE endpoint pushes updates for "all tickers known to the system." When a user adds a new ticker, does the open SSE connection automatically begin streaming it, or does the client need to reconnect? The backend's internal price-cache update loop needs to handle this correctly. If reconnection is required, the frontend should trigger it on watchlist mutations.
+
+**Position row lifecycle**
+When a user sells their entire position in a ticker, should the row in `positions` be deleted or updated to `quantity=0`? Leaving zero-quantity rows affects `GET /api/portfolio` response shape and the heatmap (does a zero-quantity position appear?). The plan doesn't specify.
+
+**Chat history depth**
+"Loads recent conversation history" — how many messages? No limit is defined. Long sessions will eventually exceed the LLM's context window and cause silent failures or truncation. A concrete limit (e.g., last 20 messages) should be specified.
+A:last 20 messages.
+
+
+**Ticker validation on add**
+When adding a ticker (manually or via AI chat), should the backend validate it exists? yes.
+
+**`actions` column and failed trades**
+The plan says trade errors are "included in the chat response" but doesn't say whether failed AI-initiated trades are also persisted in the `actions` JSON column of `chat_messages`. Clarify: does `actions` record attempted-but-failed trades, or only successfully executed ones?
+A: only successfully executed ones.
+
+**Portfolio value in the header vs. snapshots**
+The header shows "portfolio total value (updating live)" but `GET /api/portfolio` is a REST call, not SSE. To update live, the frontend must either poll `/api/portfolio` repeatedly or compute value client-side from live SSE prices + known positions. The plan is silent on which approach is intended. Client-side computation is simpler and more real-time; polling adds load.
+A: Client-side computation.
+
+**Connection status "yellow = reconnecting"**
+The native `EventSource` API only exposes `readyState`: `CONNECTING`, `OPEN`, or `CLOSED`. There's no explicit "reconnecting" event that maps cleanly to the yellow state. Implementing yellow requires wrapping `EventSource` with custom retry logic that detects `CLOSED` followed by a new `CONNECTING`. The frontend agent needs to know this isn't automatic.
+
+
+**`GET /api/watchlist` response during cold start**
+Before the market data background task has run its first tick, the price cache is empty. The watchlist endpoint says it returns "latest prices" — what does it return if no prices are cached yet? The seed prices from the simulator config
+
+
+
+---
+
+### Simplification Opportunities
+
+
+
