@@ -199,3 +199,16 @@ class TestMassiveDataSource:
         assert cache.get_price("AAPL") == 190.50
 
         await source.stop()
+
+    async def test_start_normalizes_tickers(self):
+        """Test that start() normalizes tickers to uppercase and strips whitespace."""
+        cache = PriceCache()
+        source = MassiveDataSource(api_key="test-key", price_cache=cache, poll_interval=60.0)
+
+        with patch("app.market.massive_client.RESTClient"):
+            with patch.object(source, "_fetch_snapshots", return_value=[]):
+                await source.start(["aapl", " googl ", "MSFT"])
+
+        assert source._tickers == ["AAPL", "GOOGL", "MSFT"]
+
+        await source.stop()

@@ -129,3 +129,21 @@ class TestGBMSimulator:
         if '.' in price_str:
             decimal_part = price_str.split('.')[1]
             assert len(decimal_part) <= 2
+
+    def test_cholesky_fallback_on_non_positive_definite(self):
+        """Simulator must not crash when Cholesky fails; it falls back to None."""
+        import numpy as np
+        from unittest.mock import patch
+
+        sim = GBMSimulator(tickers=["AAPL"])
+        # Patch cholesky to raise LinAlgError to exercise the fallback path
+        with patch.object(np.linalg, "cholesky", side_effect=np.linalg.LinAlgError("not PD")):
+            sim.add_ticker("GOOGL")  # triggers _rebuild_cholesky
+
+        # Fallback: _cholesky is None (independent moves)
+        assert sim._cholesky is None
+        # Simulation must still produce valid prices
+        result = sim.step()
+        assert "AAPL" in result
+        assert "GOOGL" in result
+        assert all(v > 0 for v in result.values())

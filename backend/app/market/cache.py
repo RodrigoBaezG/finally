@@ -24,17 +24,21 @@ class PriceCache:
         """Record a new price for a ticker. Returns the created PriceUpdate.
 
         Automatically computes direction and change from the previous price.
-        If this is the first update for the ticker, previous_price == price (direction='flat').
+        If this is the first update for the ticker, previous_price == price and
+        session_start_price == price (direction='flat', session_change_percent=0).
         """
         with self._lock:
-            ts = timestamp or time.time()
+            ts = timestamp if timestamp is not None else time.time()
             prev = self._prices.get(ticker)
             previous_price = prev.price if prev else price
+            # session_start_price is frozen at the first update and never changes
+            session_start_price = prev.session_start_price if prev else price
 
             update = PriceUpdate(
                 ticker=ticker,
                 price=round(price, 2),
                 previous_price=round(previous_price, 2),
+                session_start_price=round(session_start_price, 2),
                 timestamp=ts,
             )
             self._prices[ticker] = update
