@@ -13,6 +13,7 @@ class PriceUpdate:
     ticker: str
     price: float
     previous_price: float
+    session_start_price: float  # Seed price for the session; never changes after first update
     timestamp: float = field(default_factory=time.time)  # Unix seconds
 
     @property
@@ -26,6 +27,13 @@ class PriceUpdate:
         if self.previous_price == 0:
             return 0.0
         return round((self.price - self.previous_price) / self.previous_price * 100, 4)
+
+    @property
+    def session_change_percent(self) -> float:
+        """Percentage change from the session-start seed price."""
+        if self.session_start_price == 0:
+            return 0.0
+        return round((self.price - self.session_start_price) / self.session_start_price * 100, 4)
 
     @property
     def direction(self) -> str:
@@ -42,8 +50,10 @@ class PriceUpdate:
             "ticker": self.ticker,
             "price": self.price,
             "previous_price": self.previous_price,
+            "session_start_price": self.session_start_price,
             "timestamp": self.timestamp,
             "change": self.change,
             "change_percent": self.change_percent,
+            "session_change_percent": self.session_change_percent,
             "direction": self.direction,
         }

@@ -1,0 +1,41 @@
+services:
+  finally-test:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    image: finally:test
+    container_name: finally-test
+    ports:
+      - "8000:8000"
+    volumes:
+      - finally-test-data:/app/db
+    environment:
+      LLM_MOCK: "true"
+      MASSIVE_API_KEY: ""
+      OPENROUTER_API_KEY: ""
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  playwright:
+    image: mcr.microsoft.com/playwright:v1.47.0-jammy
+    container_name: finally-playwright
+    depends_on:
+      finally-test:
+        condition: service_healthy
+    working_dir: /tests
+    volumes:
+      - ..:/tests
+    environment:
+      BASE_URL: "http://finally-test:8000"
+      CI: "true"
+    # The integration-tester agent sets the actual command; default keeps container alive for inspection
+    command: ["npx", "playwright", "test", "--config", "test/playwright.config.ts"]
+    network_mode: "service:finally-test"
+
+volumes:
+  finally-test-data:
+    name: finally-test-data

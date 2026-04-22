@@ -1,0 +1,44 @@
+# Node / frontend build artifacts
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+
+# Python artifacts
+backend/.venv/
+backend/__pycache__/
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+**/*.pyd
+backend/.pytest_cache/
+backend/.ruff_cache/
+backend/*.egg-info/
+backend/dist/
+backend/build/
+
+# Database files — SQLite lives on a volume, never baked into the image
+db/finally.db
+db/finally.db-journal
+db/finally.db-wal
+db/finally.db-shm
+
+# Environment secrets — injected at runtime via --env-file
+.env
+
+# Version control
+.git/
+.gitignore
+
+# Editor and OS noise
+.vscode/
+.idea/
+*.DS_Store
+Thumbs.db
+
+# Docs and planning (not needed in the image)
+planning/
+README.md
+LICENSE
+
+# Test infrastructure — Playwright browsers stay out of the production image
+test/

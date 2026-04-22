@@ -15,11 +15,27 @@ class TestPriceCache:
         assert cache.get("AAPL") == update
 
     def test_first_update_is_flat(self):
-        """Test that the first update has flat direction."""
+        """Test that the first update has flat direction and session_start_price == price."""
         cache = PriceCache()
         update = cache.update("AAPL", 190.50)
         assert update.direction == "flat"
         assert update.previous_price == 190.50
+        assert update.session_start_price == 190.50
+
+    def test_session_start_price_frozen_after_first_update(self):
+        """session_start_price must not change on subsequent updates."""
+        cache = PriceCache()
+        cache.update("AAPL", 190.00)
+        cache.update("AAPL", 195.00)
+        update = cache.update("AAPL", 200.00)
+        assert update.session_start_price == 190.00  # still the very first price
+
+    def test_session_change_percent(self):
+        """session_change_percent reflects change from very first price."""
+        cache = PriceCache()
+        cache.update("AAPL", 100.00)
+        update = cache.update("AAPL", 110.00)
+        assert update.session_change_percent == 10.0
 
     def test_direction_up(self):
         """Test price update with upward direction."""
@@ -96,8 +112,29 @@ class TestPriceCache:
         update = cache.update("AAPL", 190.50, timestamp=custom_ts)
         assert update.timestamp == custom_ts
 
+    def test_timestamp_zero_is_respected(self):
+        """timestamp=0.0 must not be silently replaced with the current time."""
+        cache = PriceCache()
+        update = cache.update("AAPL", 190.50, timestamp=0.0)
+        assert update.timestamp == 0.0
+
     def test_price_rounding(self):
         """Test that prices are rounded to 2 decimal places."""
         cache = PriceCache()
         update = cache.update("AAPL", 190.12345)
         assert update.price == 190.12
+
+    def test_session_start_price_rounding(self):
+        """Test that session_start_price is also rounded to 2 decimal places."""
+        cache = PriceCache()
+        update = cache.update("AAPL", 190.12345)
+        assert update.session_start_price == 190.12
+
+    def test_re_add_after_remove_resets_session_start(self):
+        """Removing and re-adding a ticker should reset session_start_price."""
+        cache = PriceCache()
+        cache.update("AAPL", 190.00)
+        cache.update("AAPL", 200.00)
+        cache.remove("AAPL")
+        update = cache.update("AAPL", 210.00)
+        assert update.session_start_price == 210.00  # fresh start after removal
