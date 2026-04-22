@@ -132,8 +132,9 @@ class TestGBMSimulator:
 
     def test_cholesky_fallback_on_non_positive_definite(self):
         """Simulator must not crash when Cholesky fails; it falls back to None."""
-        import numpy as np
         from unittest.mock import patch
+
+        import numpy as np
 
         sim = GBMSimulator(tickers=["AAPL"])
         # Patch cholesky to raise LinAlgError to exercise the fallback path

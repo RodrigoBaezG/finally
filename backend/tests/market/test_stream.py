@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi import FastAPI
@@ -11,7 +11,6 @@ from fastapi.testclient import TestClient
 
 from app.market.cache import PriceCache
 from app.market.stream import _generate_events, create_stream_router
-
 
 # ---------------------------------------------------------------------------
 # Helpers
