@@ -40,7 +40,11 @@
       "Bash(LLM_MOCK=true FINALLY_DB_PATH=/tmp/e2e_finally.db uv run uvicorn app.main:app --port 8000)",
       "Bash(netstat -ano)",
       "Bash(LLM_MOCK=true FINALLY_DB_PATH=/tmp/e2e_finally.db ./.venv/Scripts/python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --no-access-log)",
-      "Bash(python -c \"import json,sys;d=json.loads\\(sys.stdin.read\\(\\)\\);print\\(f'snapshots={len\\(d\\)}'\\);print\\(d[:3] if d else 'EMPTY'\\)\")"
+      "Bash(python -c \"import json,sys;d=json.loads\\(sys.stdin.read\\(\\)\\);print\\(f'snapshots={len\\(d\\)}'\\);print\\(d[:3] if d else 'EMPTY'\\)\")",
+      "Bash(git merge *)",
+      "Bash(git push *)",
+      "Bash(git checkout *)",
+      "Bash(git stash *)"
     ]
   }
 }
