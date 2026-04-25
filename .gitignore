@@ -222,6 +222,11 @@ frontend/node_modules/
 frontend/out/
 frontend/.next/
 
+# Re-include the frontend lib directory (the generic `lib/` rule from the
+# Python template above would otherwise ignore it).
+!frontend/src/lib/
+!frontend/src/lib/**
+
 # Python virtual environment and cache
 backend/.venv/
 backend/__pycache__/
